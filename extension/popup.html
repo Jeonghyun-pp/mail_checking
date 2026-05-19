@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        width: 320px;
+        margin: 0;
+        padding: 14px;
+        color: #1a1d21;
+        background: #f6f7f9;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 10px;
+      }
+      h1 span {
+        color: #4f46e5;
+      }
+      section {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #9ca3af;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #d1d5db;
+        border-radius: 7px;
+        padding: 6px 8px;
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+      button {
+        background: #4f46e5;
+        color: #fff;
+        border: 0;
+        border-radius: 7px;
+        padding: 7px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        color: #4f46e5;
+        border: 1px solid #c7d2fe;
+      }
+      .result {
+        margin-top: 8px;
+        font-size: 13px;
+      }
+      .mono {
+        font-family: monospace;
+      }
+      .muted {
+        color: #6b7280;
+        font-size: 12px;
+      }
+      .err {
+        color: #dc2626;
+        font-size: 12px;
+      }
+      .ok {
+        color: #059669;
+      }
+      details summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: #6b7280;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>mail<span>checking</span></h1>
+
+    <details id="settings">
+      <summary>Connection settings</summary>
+      <div style="margin-top: 8px">
+        <div class="label">API base URL</div>
+        <input id="apiBase" placeholder="http://localhost:3000" />
+        <div class="label">API key</div>
+        <input id="apiKey" type="password" placeholder="mk_…" />
+        <button id="saveSettings">Save settings</button>
+        <span id="settingsMsg" class="ok"></span>
+      </div>
+    </details>
+
+    <section>
+      <div class="label">Find an email</div>
+      <input id="firstName" placeholder="First name" />
+      <input id="lastName" placeholder="Last name" />
+      <input id="domain" placeholder="company.com" />
+      <button id="findBtn">Find email</button>
+      <div id="findResult" class="result"></div>
+    </section>
+
+    <section>
+      <div class="label">Verify an email</div>
+      <input id="verifyEmail" placeholder="name@company.com" />
+      <button id="verifyBtn">Verify</button>
+      <div id="verifyResult" class="result"></div>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

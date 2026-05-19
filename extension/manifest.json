@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "mailchecking — Email Finder",
+  "version": "1.0.0",
+  "description": "Find and verify work emails and save leads to mailchecking, including from LinkedIn profiles.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "mailchecking"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mailchecking_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mailchecking
+      POSTGRES_PASSWORD: mailchecking
+      POSTGRES_DB: mailchecking
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: mailchecking_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  # Local SMTP server for development — catches all outbound mail.
+  # SMTP on 1025, web UI on http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailchecking_mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  pgdata:
+  redisdata:

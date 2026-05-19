@@ -1,0 +1,475 @@
+// Prisma schema for the mail_checking outreach platform.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  role         Role     @default(MEMBER)
+  createdAt    DateTime @default(now())
+
+  leadLists     LeadList[]
+  leads         Lead[]
+  bulkJobs      BulkJob[]
+  emailAccounts EmailAccount[]
+  campaigns     Campaign[]
+  pipelines     Pipeline[]
+  tasks         Task[]
+  activities    Activity[]
+  apiKeys       ApiKey[]
+  webhooks      Webhook[]
+}
+
+// ---------------------------------------------------------------------------
+// Public API & webhooks
+// ---------------------------------------------------------------------------
+
+model ApiKey {
+  id           String    @id @default(cuid())
+  name         String
+  hash         String    @unique // sha256 of the secret key
+  prefix       String // first chars, shown in the UI
+  dailyLimit   Int       @default(1000)
+  usageToday   Int       @default(0)
+  usageResetAt DateTime  @default(now())
+  usageTotal   Int       @default(0)
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Single-use codes that gate sign-up to invited teammates only.
+model InviteCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  createdAt   DateTime  @default(now())
+  usedByEmail String?
+  usedAt      DateTime?
+}
+
+enum WebhookEvent {
+  LEAD_CREATED
+  CAMPAIGN_REPLIED
+  DEAL_WON
+}
+
+model Webhook {
+  id        String       @id @default(cuid())
+  url       String
+  event     WebhookEvent
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Leads
+// ---------------------------------------------------------------------------
+
+model LeadList {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  leads Lead[]
+
+  @@index([userId])
+}
+
+model Lead {
+  id        String   @id @default(cuid())
+  email     String
+  firstName String?
+  lastName  String?
+  position  String?
+  company   String?
+  domain    String?
+  source    String?  @default("manual") // manual | finder | import | extension
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Cached verification snapshot
+  verifyStatus VerifyStatus @default(NOT_VERIFIED)
+  verifyScore  Int?
+  verifiedAt   DateTime?
+
+  // Global suppression — an unsubscribed lead is excluded from all campaigns.
+  unsubscribed   Boolean   @default(false)
+  unsubscribedAt DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  listId String?
+  list   LeadList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+
+  campaignRecipients CampaignRecipient[]
+  deals              Deal[]
+  tasks              Task[]
+  activities         Activity[]
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([listId])
+}
+
+// ---------------------------------------------------------------------------
+// Verification
+// ---------------------------------------------------------------------------
+
+enum VerifyStatus {
+  NOT_VERIFIED
+  VALID
+  INVALID
+  CATCH_ALL
+  RISKY
+  UNKNOWN
+}
+
+// Standalone verification record (used for ad-hoc / bulk verification not
+// necessarily tied to a saved lead).
+model VerificationResult {
+  id        String       @id @default(cuid())
+  email     String
+  status    VerifyStatus
+  score     Int          @default(0)
+  // Individual check outcomes serialized as JSON.
+  checks    Json
+  reason    String?
+  createdAt DateTime     @default(now())
+
+  bulkJobId String?
+  bulkJob   BulkJob? @relation(fields: [bulkJobId], references: [id], onDelete: Cascade)
+
+  @@index([bulkJobId])
+  @@index([email])
+}
+
+// ---------------------------------------------------------------------------
+// Bulk jobs (verify / find)
+// ---------------------------------------------------------------------------
+
+enum BulkJobType {
+  VERIFY
+  FIND
+}
+
+enum BulkJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+model BulkJob {
+  id        String        @id @default(cuid())
+  type      BulkJobType
+  status    BulkJobStatus @default(QUEUED)
+  total     Int           @default(0)
+  processed Int           @default(0)
+  input     Json // raw input rows
+  result    Json? // summary counts
+  error     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  verifications VerificationResult[]
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Email accounts (sending identities for campaigns)
+// ---------------------------------------------------------------------------
+
+model EmailAccount {
+  id           String   @id @default(cuid())
+  fromName     String
+  fromEmail    String
+  smtpHost     String
+  smtpPort     Int      @default(587)
+  smtpUser     String
+  smtpPassword String // encrypted at rest in production
+  smtpSecure   Boolean  @default(false)
+  dailyLimit   Int      @default(50)
+  createdAt    DateTime @default(now())
+
+  // Warm-up: gradually ramps daily volume to build sender reputation.
+  warmupOn        Boolean   @default(false)
+  warmupTarget    Int       @default(40)
+  warmupStartedAt DateTime?
+
+  // Optional IMAP settings — enables reply detection when configured.
+  imapHost          String?
+  imapPort          Int?     @default(993)
+  imapUser          String?
+  imapPassword      String?
+  imapSecure        Boolean  @default(true)
+  imapLastCheckedAt DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  campaigns    Campaign[]
+  warmupEvents WarmupEvent[]
+
+  @@index([userId])
+}
+
+enum WarmupEventType {
+  SENT
+  RECEIVED
+  OPENED
+  REPLIED
+}
+
+// One warm-up interaction, counted toward `account`'s reputation.
+model WarmupEvent {
+  id        String          @id @default(cuid())
+  type      WarmupEventType
+  peerEmail String
+  createdAt DateTime        @default(now())
+
+  accountId String
+  account   EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Campaigns
+// ---------------------------------------------------------------------------
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model Campaign {
+  id        String         @id @default(cuid())
+  name      String
+  status    CampaignStatus @default(DRAFT)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  emailAccountId String?
+  emailAccount   EmailAccount? @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+
+  steps      CampaignStep[]
+  recipients CampaignRecipient[]
+
+  @@index([userId])
+}
+
+// A step in the drip sequence. delayHours is measured from the previous step.
+model CampaignStep {
+  id         String   @id @default(cuid())
+  order      Int
+  delayHours Int      @default(0)
+  subject    String
+  body       String
+  // Optional A/B variant — when set, half of sends use these instead.
+  subjectB   String?
+  bodyB      String?
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  events EmailEvent[]
+
+  @@index([campaignId])
+}
+
+enum RecipientStatus {
+  PENDING
+  ACTIVE
+  REPLIED
+  BOUNCED
+  UNSUBSCRIBED
+  FINISHED
+}
+
+model CampaignRecipient {
+  id          String          @id @default(cuid())
+  status      RecipientStatus @default(PENDING)
+  currentStep Int             @default(0)
+  nextSendAt  DateTime?
+  createdAt   DateTime        @default(now())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  events EmailEvent[]
+
+  @@unique([campaignId, leadId])
+  @@index([campaignId])
+}
+
+enum EmailEventType {
+  SENT
+  OPENED
+  CLICKED
+  REPLIED
+  BOUNCED
+}
+
+model EmailEvent {
+  id        String         @id @default(cuid())
+  type      EmailEventType
+  meta      Json?
+  createdAt DateTime       @default(now())
+
+  recipientId String
+  recipient   CampaignRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  stepId String?
+  step   CampaignStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId])
+}
+
+// ---------------------------------------------------------------------------
+// CRM
+// ---------------------------------------------------------------------------
+
+model Pipeline {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stages Stage[]
+  deals  Deal[]
+
+  @@index([userId])
+}
+
+model Stage {
+  id    String @id @default(cuid())
+  name  String
+  order Int
+
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  deals Deal[]
+
+  @@index([pipelineId])
+}
+
+model Deal {
+  id        String   @id @default(cuid())
+  title     String
+  value     Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  stageId String
+  stage   Stage  @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  tasks      Task[]
+  activities Activity[]
+
+  @@index([pipelineId])
+  @@index([stageId])
+}
+
+// ---------------------------------------------------------------------------
+// Tasks & activity timeline
+// ---------------------------------------------------------------------------
+
+model Task {
+  id        String    @id @default(cuid())
+  title     String
+  done      Boolean   @default(false)
+  dueAt     DateTime?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([dealId])
+  @@index([leadId])
+}
+
+enum ActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  STAGE_CHANGE
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  type      ActivityType @default(NOTE)
+  content   String
+  createdAt DateTime     @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([leadId])
+}
